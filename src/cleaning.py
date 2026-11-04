@@ -299,3 +299,47 @@ def final_data_quality_report(df: DataFrame) -> DataFrame:
         F.count("*").alias("total_movies"),
         F.countDistinct("id").alias("unique_movie_ids")
     )
+def reorder_and_finalize_dataframe(df: DataFrame) -> DataFrame:
+    """
+    Convert budget and revenue to millions of USD,
+    then select and reorder the required columns.
+    """
+
+    df = df.withColumn(
+        "budget_musd",
+        F.col("budget") / 1_000_000
+    )
+
+    df = df.withColumn(
+        "revenue_musd",
+        F.col("revenue") / 1_000_000
+    )
+
+    df = df.drop("budget", "revenue")
+
+    final_columns = [
+        "id",
+        "title",
+        "tagline",
+        "release_date",
+        "genres",
+        "belongs_to_collection",
+        "original_language",
+        "budget_musd",
+        "revenue_musd",
+        "production_companies",
+        "production_countries",
+        "vote_count",
+        "vote_average",
+        "popularity",
+        "runtime",
+        "overview",
+        "spoken_languages",
+        "poster_path",
+        "cast",
+        "cast_size",
+        "director",
+        "crew_size"
+    ]
+
+    return df.select(*final_columns)
