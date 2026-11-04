@@ -8,6 +8,8 @@ The main objective is to explore movie performance through financial metrics, au
 
 The project demonstrates a modular data processing workflow, from API data extraction and cleaning to analysis and visualization.
 
+A written summary of the methodology, results and conclusions is available in [reports/final_report.md](reports/final_report.md).
+
 ## 2. Project Objectives
 
 - Extract movie details and cast information using the TMDB API.
@@ -21,13 +23,14 @@ The project demonstrates a modular data processing workflow, from API data extra
 
 | Technology | Purpose |
 |---|---|
-| Python | Main programming language |
-| Apache Spark (PySpark) | Distributed data processing |
+| Python 3.11 | Main programming language |
+| Apache Spark (PySpark 4.0.1) | Distributed data processing |
 | Pandas | Data handling for visualization |
 | Matplotlib | Data visualization |
-| Seaborn | Statistical visualizations |
+| Seaborn | Statistical visualizations (built on Matplotlib) |
 | Jupyter Notebook | Interactive analysis |
 | TMDB API | Movie data source |
+| Requests | Calling the TMDB API |
 | python-dotenv | Environment variable management |
 
 ## 4. Project Structure
@@ -36,8 +39,8 @@ The project demonstrates a modular data processing workflow, from API data extra
 tmdb-spark-analysis/
 │
 ├── data/
-│   ├── raw/
-│   └── processed/
+│   ├── raw/                  # Raw API data (created by the notebook, not committed)
+│   └── processed/            # Cleaned data saved as Parquet
 │
 ├── notebooks/
 │   └── tmdb_movie_analysis.ipynb
@@ -50,22 +53,28 @@ tmdb-spark-analysis/
 │   └── visualization.py
 │
 ├── reports/
+│   ├── final_report.md
+│   └── *.png                 # The five visualizations
 │
-├── .env
+├── .env                      # Your API token (you create it, not committed)
 ├── .gitignore
 ├── requirements.txt
+├── requirements-pyspark313.txt
 └── README.md
 ```
 
-### Folder Description
+### 4.1 Folder and File Description
 
-- **data/raw/**: Stores raw movie data collected from the API.
-- **data/processed/**: Stores cleaned and processed datasets.
-- **notebooks/**: Contains the Jupyter Notebook documenting the analysis workflow.
-- **src/**: Contains reusable Python functions organized into separate modules.
-- **reports/**: Stores generated analysis reports and outputs.
-- **.env**: Stores API credentials and other environment variables.
-- **requirements.txt**: Lists the Python dependencies.
+- **data/raw/**: Raw movie data collected from the API. It is ignored by Git and is recreated when you run the notebook.
+- **data/processed/**: Cleaned and processed dataset saved in Parquet format.
+- **notebooks/**: The Jupyter Notebook that documents the full workflow step by step.
+- **src/**: Reusable Python functions, one module per stage.
+- **reports/**: The final report and the saved visualizations.
+- **.env**: Stores your TMDB API token. Create it yourself and never commit it.
+- **requirements.txt**: Python dependencies for the project (use this one).
+- **requirements-pyspark313.txt**: A full list of every package from a separate Python 3.13 environment. It does not include Seaborn, so use `requirements.txt` instead.
+
+The notebook also creates a `src.zip` file (a zip of the `src/` folder) so Spark can use the custom UDF. It is generated automatically and ignored by Git.
 
 ## 5. Data Source
 
@@ -81,35 +90,41 @@ The extracted information includes:
 - Cast and director information.
 - Movie collection information.
 
-Movie details and credits are retrieved through the API.
+Movie details and credits are retrieved in a single request per movie (`/movie/{id}` with `append_to_response=credits`).
 
-**Note:** The current analysis uses a limited selection of movie IDs rather than the entire TMDB database.
+**Note:** The analysis uses 19 selected movie IDs rather than the entire TMDB database. ID `0` does not exist in TMDB and returns a 404 error, so **18 movies** are analysed.
 
 ## 6. Project Workflow
 
-The project follows these main stages:
+The project follows four main stages.
 
-### Stage 1: Data Extraction
+### 6.1 Stage 1: Data Extraction
 
-Movie information is retrieved from the TMDB API using Python requests.
+Movie information is retrieved from the TMDB API using Python `requests`. Failed requests are reported and skipped. The raw responses are saved as JSON in `data/raw/` before any cleaning.
 
 The extraction logic is implemented in `src/extraction.py`.
 
-### Stage 2: Data Cleaning and Transformation
+### 6.2 Stage 2: Data Cleaning and Transformation
 
-The extracted data is prepared for analysis using PySpark.
+The raw data is loaded into a Spark DataFrame and cleaned in these steps:
 
-This stage includes:
-
-- Handling missing values.
-- Cleaning and transforming columns.
-- Extracting relevant movie information.
-- Preparing numerical fields for analysis.
-- Converting budget and revenue into millions of USD.
+1. Drop irrelevant columns.
+2. Extract the collection name, genres, spoken languages, production countries and production companies (multiple values joined with `|`).
+3. Extract the cast, cast size, director and crew size.
+4. Convert data types and replace missing collection names with `No Collection`.
+5. Inspect the extracted columns with value counts.
+6. Replace unrealistic zero values in budget, revenue and runtime with `NULL`.
+7. Set the rating to `NULL` for movies with zero votes.
+8. Replace placeholder text in `overview` and `tagline` with `NULL`.
+9. Remove duplicate movies and rows with an unknown `id` or `title`.
+10. Keep only rows with at least 10 non-empty columns.
+11. Keep only `Released` movies and drop the `status` column.
+12. Convert budget and revenue to millions of USD and reorder the columns.
+13. Save the result as Parquet in `data/processed/`.
 
 The cleaning logic is implemented in `src/cleaning.py`.
 
-### Stage 3: KPI Analysis
+### 6.3 Stage 3: KPI Analysis
 
 PySpark is used to calculate key performance indicators and answer analytical questions.
 
@@ -117,10 +132,10 @@ The analysis includes:
 
 - Highest and lowest revenue movies.
 - Highest and lowest production budgets.
-- Most profitable movies.
-- Highest and lowest ROI.
+- Most profitable and least profitable movies.
+- Highest and lowest ROI (only movies with a budget of at least $10 million).
 - Most popular and most voted movies.
-- Highest and lowest rated movies.
+- Highest and lowest rated movies (only movies with at least 10 votes).
 - Advanced searches involving actors, genres, and directors.
 - Franchise versus standalone movie comparisons.
 - Most successful movie franchises.
@@ -130,9 +145,9 @@ A custom PySpark User-Defined Function (UDF) is also implemented to calculate an
 
 The analysis functions are stored in `src/kpi_analysis.py`.
 
-### Stage 4: Data Visualization
+### 6.4 Stage 4: Data Visualization
 
-Matplotlib and Seaborn are used to present the findings visually.
+Matplotlib and Seaborn are used to present the findings visually. Each chart is displayed in the notebook and saved to `reports/`.
 
 Five visualizations are implemented:
 
@@ -146,22 +161,22 @@ The visualization functions are stored in `src/visualization.py`.
 
 ## 7. Installation and Setup
 
-### Prerequisites
+### 7.1 Prerequisites
 
 - Python 3.11
-- Java Development Kit (JDK) compatible with your Spark version
-- Apache Spark / PySpark
-- Visual Studio Code
-- Jupyter Notebook
+- Java Development Kit (JDK) 17 or 21 (required by Spark 4)
+- Visual Studio Code with the Jupyter extension (or Jupyter Notebook)
+- A free TMDB account to get an API token
+- **Windows only:** the Hadoop `winutils` files (see Section 7.6)
 
-### Step 1: Clone the Repository
+### 7.2 Clone the Repository
 
 ```bash
-git clone <YOUR_REPOSITORY_URL>
+git clone https://github.com/MugaboVedaste/tmdb-spark-analysis.git
 cd tmdb-spark-analysis
 ```
 
-### Step 2: Create a Virtual Environment
+### 7.3 Create a Virtual Environment
 
 ```bash
 py -3.11 -m venv .venv
@@ -173,23 +188,38 @@ Activate it on Windows:
 .venv\Scripts\activate
 ```
 
-### Step 3: Install Dependencies
+### 7.4 Install Dependencies
 
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### Step 4: Configure the TMDB API
+### 7.5 Configure the TMDB API
 
-Create a `.env` file in the project root and add your TMDB API access token using the environment variable expected by `src/extraction.py`.
+1. Create a free account at [themoviedb.org](https://www.themoviedb.org/).
+2. Open **Settings → API** and copy your **API Read Access Token** (the long token, not the short API key).
+3. Create a file named `.env` in the project root with this line:
 
-Keep your API credentials private. Never commit the `.env` file to GitHub.
+```text
+TMDB_READ_ACCESS_TOKEN=your_read_access_token_here
+```
 
-### Step 5: Register the Jupyter Kernel
+The notebook reads this variable in Section 5 (API Authentication) and sends it as a Bearer token. Keep your token private and never commit the `.env` file. It is already listed in `.gitignore`.
+
+### 7.6 Windows Only: Configure Hadoop
+
+On Windows, Spark needs `winutils.exe` and `hadoop.dll` to write files.
+
+1. Download the Hadoop `winutils` files that match your Hadoop version.
+2. Put them in a folder such as `D:\hadoop\bin`.
+3. In the notebook, Section 3 (Spark Session Initialization) sets `HADOOP_HOME` to `D:\hadoop`. If you used a different folder, change the path in that cell.
+
+On Linux or macOS you can skip this step and remove the Hadoop lines from that cell.
+
+### 7.7 Register the Jupyter Kernel
 
 ```bash
-python -m pip install ipykernel
 python -m ipykernel install --user --name tmdb-spark --display-name "Python 3.11 (TMDB Spark)"
 ```
 
@@ -199,37 +229,51 @@ python -m ipykernel install --user --name tmdb-spark --display-name "Python 3.11
 2. Activate the project virtual environment.
 3. Open `notebooks/tmdb_movie_analysis.ipynb`.
 4. Select the registered Python kernel.
-5. Run the notebook cells sequentially, starting with Spark initialization and data extraction.
-6. Follow the notebook through data cleaning, KPI analysis, and visualization.
+5. Run the notebook cells in order, starting with Spark initialization and data extraction.
 
-The notebook provides explanations alongside the code for each stage of the workflow.
+Running the notebook calls the TMDB API again, recreates `data/raw/` and overwrites `data/processed/`.
+
+The notebook provides explanations alongside the code for each stage. Its sections are:
+
+| Notebook sections | Content |
+|---|---|
+| 1 to 3 | Introduction and Spark setup |
+| 4 to 8 | API extraction and saving the raw data |
+| 9 to 13 | Data cleaning and saving the processed data |
+| 14 | KPI analysis and searches |
+| 15 | Visualizations |
 
 ## 9. Key Findings
 
-The analysis identifies several notable results within the selected dataset:
+The analysis identifies several notable results within the selected dataset of 18 movies:
 
-- **Highest revenue:** Avengers: Endgame.
-- **Highest profit:** Avatar.
-- **Highest production budget:** Avengers: Endgame.
-- **Highest ROI among movies with a budget of at least $10 million:** Avatar.
-- **Highest-grossing franchise:** Avengers Collection.
-- **Highest total revenue by director:** James Cameron.
+- **Highest revenue:** Avengers: Endgame ($2,942 million).
+- **Highest budget:** Avengers: Endgame ($356 million).
+- **Highest profit:** Avatar ($2,687 million).
+- **Highest ROI (budget of at least $10 million):** Avatar (12.34).
+- **Lowest ROI:** Star Wars: The Last Jedi (4.45).
+- **Highest-grossing franchise:** The Avengers Collection ($7,919 million from 4 movies).
+- **Highest total revenue by director:** James Cameron ($5,188 million from 2 movies).
+- **Franchise vs standalone:** very similar results, but only 2 standalone movies exist in the dataset.
 
-These findings are specific to the movies included in the current dataset.
+These findings are specific to the movies included in the current dataset. See [reports/final_report.md](reports/final_report.md) for the full results and discussion.
 
 ## 10. Limitations
 
-- The project currently analyzes a small selection of movies, so its findings are not representative of the entire movie industry.
-- Some actor-based searches return no results because the selected dataset does not contain the requested actors.
+- The project analyzes only 18 hand-picked blockbusters, so its findings are not representative of the entire movie industry.
+- The Bruce Willis and Uma Thurman searches return no results because none of the selected movies include these actors.
+- Only the first director listed is kept for each movie, so co-directors (for example the Russo brothers) are not counted together.
 - ROI is calculated as revenue divided by production budget. It does not account for marketing, distribution, or other costs.
 - Movie budgets and revenues are based on the information provided by TMDB.
+- The cleaning rules for zero values, placeholders and unreleased movies are implemented, but they do not change this dataset because it only contains well-known released movies.
 
 ## 11. Future Improvements
 
-- Expand the dataset to include more movies from TMDB.
+- Expand the dataset to include more movies from TMDB, including low-budget and unsuccessful ones.
+- Keep all directors of a movie instead of only the first.
+- Improve two charts: show ROI on its own axis in the franchise chart, and avoid joining years that have no data in the yearly chart.
 - Automate data extraction and refresh.
 - Introduce additional analytical metrics.
-- Improve visualization and reporting.
 - Explore advanced Spark optimization techniques.
 - Build an interactive dashboard for exploring movie performance.
 
@@ -239,6 +283,6 @@ These findings are specific to the movies included in the current dataset.
 
 Computer Science Student | Data Engineering
 
-GitHub: [Your GitHub Profile](<YOUR_GITHUB_PROFILE_URL>)
+GitHub: [MugaboVedaste](https://github.com/MugaboVedaste)
 
 Portfolio: [vedaste.tech](https://vedaste.tech)

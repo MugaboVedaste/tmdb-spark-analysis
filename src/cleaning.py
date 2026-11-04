@@ -290,6 +290,103 @@ def remove_duplicate_movies(df: DataFrame) -> DataFrame:
 
     return df.dropDuplicates(["id"])
 
+def value_counts(df: DataFrame, column: str, split_values: bool = False) -> DataFrame:
+    """
+    Count how often each value appears in a column (like pandas value_counts).
+
+    Set split_values=True for columns such as genres, where several
+    values are joined with '|', so each value is counted separately.
+    """
+
+    if split_values:
+        df = df.withColumn(column, F.explode(F.split(F.col(column), r"\|")))
+
+    return (
+        df.groupBy(column)
+        .count()
+        .orderBy(F.col("count").desc(), F.col(column))
+    )
+
+
+def replace_zero_values(df: DataFrame) -> DataFrame:
+    """
+    Budget, revenue and runtime cannot realistically be 0,
+    so replace 0 with NULL (the Spark version of NaN).
+    """
+
+    for column in ["budget", "revenue", "runtime"]:
+        df = df.withColumn(
+            column,
+            F.when(F.col(column) == 0, None).otherwise(F.col(column))
+        )
+
+    return df
+
+
+def handle_zero_vote_count(df: DataFrame) -> DataFrame:
+    """
+    A movie with no votes has no meaningful rating,
+    so set its vote_average to NULL.
+    """
+
+    return df.withColumn(
+        "vote_average",
+        F.when(F.col("vote_count") == 0, None).otherwise(F.col("vote_average"))
+    )
+
+
+def replace_placeholder_text(df: DataFrame) -> DataFrame:
+    """
+    Replace placeholder text in overview and tagline with NULL.
+    """
+
+    placeholders = ["", "no data", "no overview", "no tagline", "n/a", "unknown"]
+
+    for column in ["overview", "tagline"]:
+        df = df.withColumn(
+            column,
+            F.when(
+                F.lower(F.trim(F.col(column))).isin(placeholders),
+                None
+            ).otherwise(F.col(column))
+        )
+
+    return df
+
+
+def drop_unknown_id_or_title(df: DataFrame) -> DataFrame:
+    """
+    Remove rows where the movie id or title is missing.
+    """
+
+    return df.filter(
+        F.col("id").isNotNull()
+        & F.col("title").isNotNull()
+        & (F.trim(F.col("title")) != "")
+    )
+
+
+def keep_rows_with_enough_data(df: DataFrame, min_non_null: int = 10) -> DataFrame:
+    """
+    Keep only rows that have at least min_non_null columns with a value.
+    """
+
+    non_null_count = sum(
+        F.when(F.col(column).isNotNull(), 1).otherwise(0)
+        for column in df.columns
+    )
+
+    return df.filter(non_null_count >= min_non_null)
+
+
+def keep_released_movies(df: DataFrame) -> DataFrame:
+    """
+    Keep only movies with status 'Released', then drop the status column.
+    """
+
+    return df.filter(F.col("status") == "Released").drop("status")
+
+
 def final_data_quality_report(df: DataFrame) -> DataFrame:
     """
     Summarize the final cleaned dataset.
