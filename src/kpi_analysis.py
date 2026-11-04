@@ -96,8 +96,11 @@ def analyze_movie_collections(df):
         .agg(
             F.count("id").alias("movie_count"),
             F.sum("budget_musd").alias("total_budget_musd"),
+            F.avg("budget_musd").alias("mean_budget_musd"),
             F.sum("revenue_musd").alias("total_revenue_musd"),
-            F.sum("profit_musd").alias("total_profit_musd")
+            F.avg("revenue_musd").alias("mean_revenue_musd"),
+            F.sum("profit_musd").alias("total_profit_musd"),
+            F.avg("vote_average").alias("mean_rating")
         )
         .orderBy(F.col("total_revenue_musd").desc())
     )
@@ -222,4 +225,64 @@ def rank_movies_by_roi_udf(df, min_budget=10, limit=10):
         .select("id", "title", "budget_musd", "revenue_musd", "roi")
         .orderBy(F.col("roi").desc())
         .limit(limit)
+    )
+
+def find_bruce_willis_movies(df):
+    return (
+        df.filter(
+            F.col("cast").contains("Bruce Willis") &
+            F.col("genres").contains("Science Fiction") &
+            F.col("genres").contains("Action")
+        )
+        .select(
+            "id",
+            "title",
+            "genres",
+            "vote_average"
+        )
+        .orderBy(F.col("vote_average").desc())
+    )
+
+
+def find_uma_thurman_movies(df):
+    return (
+        df.filter(
+            F.col("cast").contains("Uma Thurman") &
+            (F.col("director") == "Quentin Tarantino")
+        )
+        .select(
+            "id",
+            "title",
+            "director",
+            "runtime"
+        )
+        .orderBy(F.col("runtime").asc())
+    )
+
+def compare_franchise_vs_standalone(df):
+    return (
+        df
+        .withColumn(
+            "movie_type",
+            F.when(
+                F.col("belongs_to_collection") == "No Collection",
+                "Standalone"
+            ).otherwise("Franchise")
+        )
+        .withColumn(
+            "roi",
+            F.when(
+                F.col("budget_musd") > 0,
+                F.col("revenue_musd") / F.col("budget_musd")
+            )
+        )
+        .groupBy("movie_type")
+        .agg(
+            F.avg("revenue_musd").alias("mean_revenue"),
+            F.percentile_approx("roi", 0.5).alias("median_roi"),
+            F.avg("budget_musd").alias("mean_budget"),
+            F.avg("popularity").alias("mean_popularity"),
+            F.avg("vote_average").alias("mean_rating")
+        )
+        .orderBy("movie_type")
     )
